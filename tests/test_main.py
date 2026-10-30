@@ -4,7 +4,7 @@ import sys
 from unittest.mock import patch
 
 sys.path.insert(0, "src")
-from main import parse_args  # noqa: E402
+from main import parse_args
 
 
 def test_parse_required_args():

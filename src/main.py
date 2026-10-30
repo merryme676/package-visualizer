@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Инструмент визуализации графа зависимостей (NuGet)."""
 
 import argparse
