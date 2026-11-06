@@ -1,10 +1,16 @@
-"""Инструмент визуализации графа зависимостей (NuGet)."""
+"""
+Инструмент визуализации графа зависимостей для пакетов NuGet.
+"""
 
-import json
 import argparse
-import urllib.request
 import urllib.error
-import xml.etree.ElementTree as ET
+import urllib.request
+import xml.etree.ElementTree as xml_tree
+import json
+
+# Магические числа вынесены в константы
+HTTP_OK = 200
+HTTP_NOT_FOUND = 404
 
 
 def parse_args():
@@ -17,25 +23,19 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Визуализатор графа зависимостей для NuGet",
     )
-    parser.add_argument("--package", help="Имя анализируемого пакета")
-    parser.add_argument("--repo", help="URL или путь к тестовому файлу")
-    parser.add_argument("--mode", help="Режим работы с тестовым репо")
+    parser.add_argument("--package", help="Имя пакета")
+    parser.add_argument("--repo", help="Путь к локальному файлу")
+    parser.add_argument("--mode", help="Режим работы")
     parser.add_argument("--version", help="Версия пакета")
     parser.add_argument("--output", help="Имя файла с графом")
-    parser.add_argument(
-        "--ascii",
-        action="store_true",
-        help="Режим вывода ASCII-дерева",
-    )
+    parser.add_argument("--ascii", action="store_true", help="ASCII-дерево")
+    parser.add_argument("--reverse", action="store_true", help="Обратные зависимости")
     return parser.parse_args()
 
 
 def print_config(args):
     """
     Выводит все параметры в формате ключ-значение.
-
-    Args:
-        args: объект с параметрами.
     """
     print("=== Параметры запуска ===")
     print(f"Package: {args.package}")
@@ -56,39 +56,39 @@ def get_latest_version(package):
 
     try:
         with urllib.request.urlopen(url) as response:
-            import json
             data = json.loads(response.read())
             versions = data.get("versions", [])
             if versions:
-                return versions[-1]  # Самая последняя
+                return versions[-1]
     except Exception:
         pass
     return None
 
 
-def fetch_dependencies(package, version, repo_path=None):
+def load_test_repo(package, repo_path):
     """
-    Скачивает прямые зависимости из NuGet ИЛИ читает из локального файла.
+    Читает зависимости из локального тестового файла.
     """
-    # --- ТЕСТОВЫЙ РЕЖИМ ---
-    if repo_path:
-        try:
-            with open(repo_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    if line.strip().startswith(package + ":"):
-                        deps_str = line.split(":", 1)[1].strip()
-                        if not deps_str:
-                            return []
-                        return [d.strip() for d in deps_str.split(",")]
-            return []
-        except FileNotFoundError:
-            print(f"Ошибка: файл {repo_path} не найден.")
-            return []
+    try:
+        with open(repo_path, "r", encoding="utf-8") as file:
+            for line in file:
+                if line.strip().startswith(package + ":"):
+                    deps_str = line.split(":", 1)[1].strip()
+                    if not deps_str:
+                        return []
+                    return [d.strip() for d in deps_str.split(",")]
+        return []
+    except FileNotFoundError:
+        print(f"Ошибка: файл {repo_path} не найден.")
+        return []
 
-        # --- РЕАЛЬНЫЙ РЕЖИМ (Интернет) ---
+
+def fetch_from_network(package, version):
+    """
+    Скачивает прямые зависимости пакета из NuGet.
+    """
     pkg_lower = package.lower()
 
-    # Если версия 'latest', узнаем точную цифру
     if version == "latest" or not version:
         actual_version = get_latest_version(package)
         if not actual_version:
@@ -107,11 +107,17 @@ def fetch_dependencies(package, version, repo_path=None):
     try:
         with urllib.request.urlopen(url) as response:
             xml_data = response.read()
+    except urllib.error.HTTPError as exc:
+        if exc.code == HTTP_NOT_FOUND:
+            print(f"Пакет {package} версии {version_url} не найден.")
+        else:
+            print(f"Ошибка HTTP: {exc.code}")
+        return []
     except Exception as exc:
         print(f"Ошибка сети: {exc}")
         return []
 
-    root = ET.fromstring(xml_data)
+    root = xml_tree.fromstring(xml_data)
     dependencies = []
     for dep in root.iter():
         if dep.tag.endswith('dependency'):
@@ -121,8 +127,19 @@ def fetch_dependencies(package, version, repo_path=None):
     return dependencies
 
 
+def fetch_dependencies(package, version, repo_path=None):
+    """
+    Определяет источник данных (файл или сеть) и возвращает зависимости.
+    """
+    if repo_path:
+        return load_test_repo(package, repo_path)
+    return fetch_from_network(package, version)
+
+
 def build_graph(package, version, repo_path=None):
-    """Строит граф зависимостей (DFS без рекурсии)."""
+    """
+    Строит транзитивный граф зависимостей (DFS без рекурсии).
+    """
     graph = {}
     stack = [(package, version)]
     visited = set()
@@ -147,7 +164,9 @@ def build_graph(package, version, repo_path=None):
 
 
 def print_ascii_tree(graph, root, indent=0, visited=None):
-    """Выводит граф в виде ASCII-дерева."""
+    """
+    Выводит граф в виде ASCII-дерева.
+    """
     if visited is None:
         visited = set()
 
@@ -163,7 +182,9 @@ def print_ascii_tree(graph, root, indent=0, visited=None):
 
 
 def main():
-    """Точка входа."""
+    """
+    Точка входа в программу.
+    """
     args = parse_args()
     print_config(args)
 
@@ -172,9 +193,6 @@ def main():
         return
 
     print("\n=== Построение графа ===")
-
-    # Если указан --repo, передаем путь в функцию (тестовый режим)
-    # Если нет - функция пойдет в интернет
     graph = build_graph(args.package, args.version, args.repo)
 
     if args.ascii:
