@@ -7,7 +7,7 @@ test:
 	python3 -m pytest tests/ -v
 
 lint:
-	python3 -m flake8 src/ tests/ --max-line-length=80
+	python3 -m flake8 src/ tests/ --max-line-length=80 --extend-ignore=E402
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

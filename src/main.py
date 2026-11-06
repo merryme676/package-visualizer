@@ -29,7 +29,9 @@ def parse_args():
     parser.add_argument("--version", help="Версия пакета")
     parser.add_argument("--output", help="Имя файла с графом")
     parser.add_argument("--ascii", action="store_true", help="ASCII-дерево")
-    parser.add_argument("--reverse", action="store_true", help="Обратные зависимости")
+    parser.add_argument(
+        "--reverse", action="store_true", help="Обратные зависимости"
+    )
     return parser.parse_args()
 
 
