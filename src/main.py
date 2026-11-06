@@ -1,24 +1,20 @@
 """
-Инструмент визуализации графа зависимостей для пакетов NuGet.
+Инструмент визуализации графа зависимостей для менеджера пакетов NuGet.
 """
 
 import argparse
+import json
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as xml_tree
-import json
 
-# Магические числа вынесены в константы
-HTTP_OK = 200
-HTTP_NOT_FOUND = 404
+
+http_not_found = 404
 
 
 def parse_args():
     """
     Разбирает параметры командной строки.
-
-    Returns:
-        argparse.Namespace: объект с параметрами.
     """
     parser = argparse.ArgumentParser(
         description="Визуализатор графа зависимостей для NuGet",
@@ -28,16 +24,18 @@ def parse_args():
     parser.add_argument("--mode", help="Режим работы")
     parser.add_argument("--version", help="Версия пакета")
     parser.add_argument("--output", help="Имя файла с графом")
-    parser.add_argument("--ascii", action="store_true", help="ASCII-дерево")
     parser.add_argument(
-        "--reverse", action="store_true", help="Обратные зависимости"
+        "--ascii", action="store_true", help="ASCII-дерево"
+    )
+    parser.add_argument(
+        "--reverse", action="store_true", help="Обратные связи"
     )
     return parser.parse_args()
 
 
 def print_config(args):
     """
-    Выводит все параметры в формате ключ-значение.
+    Выводит параметры в формате ключ-значение.
     """
     print("=== Параметры запуска ===")
     print(f"Package: {args.package}")
@@ -85,6 +83,20 @@ def load_test_repo(package, repo_path):
         return []
 
 
+def parse_nuspec_xml(xml_data):
+    """
+    Извлекает имена зависимостей из XML-файла NuGet.
+    """
+    root = xml_tree.fromstring(xml_data)
+    dependencies = []
+    for dep in root.iter():
+        if dep.tag.endswith('dependency'):
+            dep_id = dep.get('id')
+            if dep_id and dep_id not in dependencies:
+                dependencies.append(dep_id)
+    return dependencies
+
+
 def fetch_from_network(package, version):
     """
     Скачивает прямые зависимости пакета из NuGet.
@@ -110,7 +122,7 @@ def fetch_from_network(package, version):
         with urllib.request.urlopen(url) as response:
             xml_data = response.read()
     except urllib.error.HTTPError as exc:
-        if exc.code == HTTP_NOT_FOUND:
+        if exc.code == http_not_found:
             print(f"Пакет {package} версии {version_url} не найден.")
         else:
             print(f"Ошибка HTTP: {exc.code}")
@@ -119,19 +131,12 @@ def fetch_from_network(package, version):
         print(f"Ошибка сети: {exc}")
         return []
 
-    root = xml_tree.fromstring(xml_data)
-    dependencies = []
-    for dep in root.iter():
-        if dep.tag.endswith('dependency'):
-            dep_id = dep.get('id')
-            if dep_id and dep_id not in dependencies:
-                dependencies.append(dep_id)
-    return dependencies
+    return parse_nuspec_xml(xml_data)
 
 
 def fetch_dependencies(package, version, repo_path=None):
     """
-    Определяет источник данных (файл или сеть) и возвращает зависимости.
+    Определяет источник данных и возвращает зависимости.
     """
     if repo_path:
         return load_test_repo(package, repo_path)
@@ -140,7 +145,7 @@ def fetch_dependencies(package, version, repo_path=None):
 
 def build_graph(package, version, repo_path=None):
     """
-    Строит транзитивный граф зависимостей (DFS без рекурсии).
+    Строит транзитивный граф зависимостей методом DFS без рекурсии.
     """
     graph = {}
     stack = [(package, version)]
