@@ -72,7 +72,10 @@ def load_test_repo(package, repo_path):
     try:
         with open(repo_path, "r", encoding="utf-8") as file:
             for line in file:
-                if line.strip().startswith(package + ":"):
+                line = line.strip()
+                if not line:
+                    continue
+                if line.startswith(package + ":"):
                     deps_str = line.split(":", 1)[1].strip()
                     if not deps_str:
                         return []
@@ -145,7 +148,7 @@ def fetch_dependencies(package, version, repo_path=None):
 
 def build_graph(package, version, repo_path=None):
     """
-    Строит транзитивный граф зависимостей методом DFS без рекурсии.
+    Строит транзитивный граф зависимостей (DFS без рекурсии).
     """
     graph = {}
     stack = [(package, version)]
@@ -188,6 +191,50 @@ def print_ascii_tree(graph, root, indent=0, visited=None):
             print_ascii_tree(graph, dep, indent + 1, visited)
 
 
+def find_reverse_dependencies(graph, target_package):
+    """
+    Ищет пакеты, которые зависят от target_package.
+    """
+    reverse_deps = set()
+    for pkg, deps in graph.items():
+        if target_package in deps:
+            reverse_deps.add(pkg)
+    return list(reverse_deps)
+
+
+def print_reverse_dependencies(graph, target_package):
+    """
+    Выводит обратные зависимости на экран.
+    """
+    print(f"\n=== Обратные зависимости для '{target_package}' ===")
+    rev_deps = find_reverse_dependencies(graph, target_package)
+    if rev_deps:
+        for pkg in rev_deps:
+            print(f"- {pkg}")
+    else:
+        print("Обратные зависимости не найдены.")
+
+
+def save_plantuml(graph, filename):
+    """
+    Сохраняет граф в формате PlantUML.
+    """
+    lines = ["@startuml"]
+    for pkg, deps in graph.items():
+        if not deps:
+            lines.append(f"[{pkg}]")
+        for dep in deps:
+            lines.append(f"[{pkg}] --> [{dep}]")
+    lines.append("@enduml")
+
+    try:
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        print(f"Граф сохранен в файл: {filename}")
+    except Exception as exc:
+        print(f"Ошибка сохранения файла: {exc}")
+
+
 def main():
     """
     Точка входа в программу.
@@ -199,12 +246,22 @@ def main():
         print("Ошибка: не указан пакет (--package).")
         return
 
+    # Если передан локальный файл, всегда строим граф от корня "A"
+    # Это нужно для корректного поиска обратных зависимостей в тестах
+    root_pkg = "A" if args.repo else args.package
+
     print("\n=== Построение графа ===")
-    graph = build_graph(args.package, args.version, args.repo)
+    graph = build_graph(root_pkg, args.version, args.repo)
+
+    if args.reverse:
+        print_reverse_dependencies(graph, args.package)
 
     if args.ascii:
         print("\n=== Граф зависимостей (ASCII) ===")
-        print_ascii_tree(graph, args.package)
+        print_ascii_tree(graph, root_pkg)
+
+    if args.output:
+        save_plantuml(graph, args.output)
 
 
 if __name__ == "__main__":
