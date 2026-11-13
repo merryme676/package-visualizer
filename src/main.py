@@ -246,7 +246,6 @@ def main():
         print("Ошибка: не указан пакет (--package).")
         return
 
-
     root_pkg = "A" if args.repo else args.package
 
     print("\n=== Построение графа ===")
