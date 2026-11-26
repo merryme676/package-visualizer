@@ -1,0 +1,5 @@
+@startuml
+[FluentValidation] --> [System.Threading.Tasks.Extensions]
+[System.Threading.Tasks.Extensions] --> [System.Runtime.CompilerServices.Unsafe]
+[System.Runtime.CompilerServices.Unsafe]
+@enduml

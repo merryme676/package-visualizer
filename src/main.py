@@ -7,6 +7,7 @@ import json
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as xml_tree
+import webbrowser
 
 
 http_not_found = 404
@@ -217,7 +218,7 @@ def print_reverse_dependencies(graph, target_package):
 
 def save_plantuml(graph, filename):
     """
-    Сохраняет граф в формате PlantUML.
+    Сохраняет граф в формате PlantUML и открывает картинку в браузере.
     """
     lines = ["@startuml"]
     for pkg, deps in graph.items():
@@ -227,12 +228,70 @@ def save_plantuml(graph, filename):
             lines.append(f"[{pkg}] --> [{dep}]")
     lines.append("@enduml")
 
+    puml_text = "\n".join(lines)
+
+    # Сохраняем текстовый файл
     try:
         with open(filename, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))
+            f.write(puml_text)
         print(f"Граф сохранен в файл: {filename}")
     except Exception as exc:
         print(f"Ошибка сохранения файла: {exc}")
+        return
+
+    # --- ПРАВИЛЬНОЕ КОДИРОВАНИЕ ДЛЯ PLANTUML ---
+    import zlib
+    import string
+
+    # 1. Сжимаем текст через Deflate
+    compressed = zlib.compress(puml_text.encode("utf-8"), 9)[2:-4]
+
+    # 2. Кодируем в специальный алфавит PlantUML
+    alphabet = string.digits + string.ascii_uppercase + string.ascii_lowercase + "-_"
+    encoded = ""
+    for i in range(0, len(compressed), 3):
+        chunk = compressed[i:i+3]
+        b1 = chunk[0]
+        b2 = chunk[1] if len(chunk) > 1 else 0
+        b3 = chunk[2] if len(chunk) > 2 else 0
+
+        c1 = b1 >> 2
+        c2 = ((b1 & 0x3) << 4) | (b2 >> 4)
+        c3 = ((b2 & 0xF) << 2) | (b3 >> 6)
+        c4 = b3 & 0x3F
+
+        encoded += alphabet[c1] + alphabet[c2] + alphabet[c3] + alphabet[c4]
+
+    # 3. Формируем ссылку
+    url = f"https://www.plantuml.com/plantuml/png/{encoded}"
+
+    print(f"Открываю граф в браузере...")
+    print(f"Ссылка: {url}")
+
+    # Открываем браузер (если Safari не откроется, ссылка будет в терминале)
+    import webbrowser
+    webbrowser.open(url)
+
+
+def download_plantuml_image(puml_text, filename):
+    """
+    Отправляет код PlantUML на сервер и скачивает готовую PNG картинку.
+    """
+    import urllib.parse
+
+    # Кодируем текст для URL
+    encoded = urllib.parse.quote(puml_text)
+    url = f"https://www.plantuml.com/plantuml/png/{encoded}"
+
+    try:
+        with urllib.request.urlopen(url) as response:
+            img_data = response.read()
+
+        with open(filename, "wb") as f:
+            f.write(img_data)
+        print(f"Изображение графа сохранено в файл: {filename}")
+    except Exception as exc:
+        print(f"Ошибка при скачивании картинки: {exc}")
 
 
 def main():

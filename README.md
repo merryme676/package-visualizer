@@ -42,15 +42,28 @@ make run
 
 ## Примеры использования (Этапы 4 и 5)
 
-Поиск обратных зависимостей (кто зависит от пакета `B`):
+Поиск обратных зависимостей (Этап 4):
+Выводит пакеты, которые зависят от заданного.
 ```bash
 ./run.sh --package B --repo test_repo.txt --reverse
 ```
 
-Генерация графа в формате PlantUML (создаст файл graph.puml):
+Визуализация и открытие в браузере (Этап 5):
+Генерирует файл .puml, автоматически кодирует его и открывает готовую картинку графа в браузере.
 ```bash
 ./run.sh --package A --repo test_repo.txt --ascii --output graph.puml
 ```
+
+Пример 1:
+```bash
+./run.sh --package Microsoft.NETCore.Platforms --version 7.0.0 --output first_graph.puml
+```
+
+Пример 2:
+```bash
+./run.sh --package FluentValidation --version 11.9.0 --output second_graph.puml
+```
+
 ## Тесты
 ```bash
 make test
