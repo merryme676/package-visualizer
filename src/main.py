@@ -1,24 +1,34 @@
+
 """
 Инструмент визуализации графа зависимостей для менеджера пакетов NuGet.
 """
 
 import argparse
 import json
+import string
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as xml_tree
 import webbrowser
+import zlib
 
 
-http_not_found = 404
+HTTP_NOT_FOUND = 404
+PLANTUML_CHUNK_SIZE = 3
+PLANTUML_COMPRESSION_LEVEL = 9
+
+PLANTUML_ALPHABET = (
+    string.digits
+    + string.ascii_uppercase
+    + string.ascii_lowercase
+    + "-_"
+)
 
 
 def parse_args():
-    """
-    Разбирает параметры командной строки.
-    """
+    """Разбирает параметры командной строки."""
     parser = argparse.ArgumentParser(
-        description="Визуализатор графа зависимостей для NuGet",
+        description="Визуализатор графа зависимостей для NuGet"
     )
     parser.add_argument("--package", help="Имя пакета")
     parser.add_argument("--repo", help="Путь к локальному файлу")
@@ -26,18 +36,20 @@ def parse_args():
     parser.add_argument("--version", help="Версия пакета")
     parser.add_argument("--output", help="Имя файла с графом")
     parser.add_argument(
-        "--ascii", action="store_true", help="ASCII-дерево"
+        "--ascii",
+        action="store_true",
+        help="ASCII-дерево"
     )
     parser.add_argument(
-        "--reverse", action="store_true", help="Обратные связи"
+        "--reverse",
+        action="store_true",
+        help="Обратные связи"
     )
     return parser.parse_args()
 
 
 def print_config(args):
-    """
-    Выводит параметры в формате ключ-значение.
-    """
+    """Выводит параметры в формате ключ-значение."""
     print("=== Параметры запуска ===")
     print(f"Package: {args.package}")
     print(f"Repo:    {args.repo}")
@@ -49,11 +61,12 @@ def print_config(args):
 
 
 def get_latest_version(package):
-    """
-    Получает последнюю версию пакета из NuGet.
-    """
+    """Получает последнюю версию пакета из NuGet."""
     pkg_lower = package.lower()
-    url = f"https://api.nuget.org/v3-flatcontainer/{pkg_lower}/index.json"
+    url = (
+        "https://api.nuget.org/v3-flatcontainer/"
+        f"{pkg_lower}/index.json"
+    )
 
     try:
         with urllib.request.urlopen(url) as response:
@@ -62,25 +75,30 @@ def get_latest_version(package):
             if versions:
                 return versions[-1]
     except Exception:
-        pass
+        return None
+
     return None
 
 
 def load_test_repo(package, repo_path):
-    """
-    Читает зависимости из локального тестового файла.
-    """
+    """Читает зависимости из локального тестового файла."""
     try:
         with open(repo_path, "r", encoding="utf-8") as file:
             for line in file:
                 line = line.strip()
                 if not line:
                     continue
+
                 if line.startswith(package + ":"):
                     deps_str = line.split(":", 1)[1].strip()
                     if not deps_str:
                         return []
-                    return [d.strip() for d in deps_str.split(",")]
+
+                    return [
+                        dependency.strip()
+                        for dependency in deps_str.split(",")
+                    ]
+
         return []
     except FileNotFoundError:
         print(f"Ошибка: файл {repo_path} не найден.")
@@ -88,23 +106,21 @@ def load_test_repo(package, repo_path):
 
 
 def parse_nuspec_xml(xml_data):
-    """
-    Извлекает имена зависимостей из XML-файла NuGet.
-    """
+    """Извлекает имена зависимостей из XML-файла NuGet."""
     root = xml_tree.fromstring(xml_data)
     dependencies = []
+
     for dep in root.iter():
-        if dep.tag.endswith('dependency'):
-            dep_id = dep.get('id')
+        if dep.tag.endswith("dependency"):
+            dep_id = dep.get("id")
             if dep_id and dep_id not in dependencies:
                 dependencies.append(dep_id)
+
     return dependencies
 
 
 def fetch_from_network(package, version):
-    """
-    Скачивает прямые зависимости пакета из NuGet.
-    """
+    """Скачивает прямые зависимости пакета из NuGet."""
     pkg_lower = package.lower()
 
     if version == "latest" or not version:
@@ -117,17 +133,20 @@ def fetch_from_network(package, version):
         version_url = version
 
     url = (
-        f"https://api.nuget.org/v3-flatcontainer/"
+        "https://api.nuget.org/v3-flatcontainer/"
         f"{pkg_lower}/{version_url}/{pkg_lower}.nuspec"
     )
 
     print(f"Загрузка данных из: {url}")
+
     try:
         with urllib.request.urlopen(url) as response:
             xml_data = response.read()
     except urllib.error.HTTPError as exc:
-        if exc.code == http_not_found:
-            print(f"Пакет {package} версии {version_url} не найден.")
+        if exc.code == HTTP_NOT_FOUND:
+            print(
+                f"Пакет {package} версии {version_url} не найден."
+            )
         else:
             print(f"Ошибка HTTP: {exc.code}")
         return []
@@ -139,18 +158,15 @@ def fetch_from_network(package, version):
 
 
 def fetch_dependencies(package, version, repo_path=None):
-    """
-    Определяет источник данных и возвращает зависимости.
-    """
+    """Определяет источник данных и возвращает зависимости."""
     if repo_path:
         return load_test_repo(package, repo_path)
+
     return fetch_from_network(package, version)
 
 
 def build_graph(package, version, repo_path=None):
-    """
-    Строит транзитивный граф зависимостей (DFS без рекурсии).
-    """
+    """Строит транзитивный граф зависимостей без рекурсии."""
     graph = {}
     stack = [(package, version)]
     visited = set()
@@ -160,9 +176,13 @@ def build_graph(package, version, repo_path=None):
 
         if (current_pkg, current_ver) in visited:
             continue
-        visited.add((current_pkg, current_ver))
 
-        deps = fetch_dependencies(current_pkg, current_ver, repo_path)
+        visited.add((current_pkg, current_ver))
+        deps = fetch_dependencies(
+            current_pkg,
+            current_ver,
+            repo_path
+        )
         graph[current_pkg] = deps
 
         next_ver = "latest" if not repo_path else current_ver
@@ -175,9 +195,7 @@ def build_graph(package, version, repo_path=None):
 
 
 def print_ascii_tree(graph, root, indent=0, visited=None):
-    """
-    Выводит граф в виде ASCII-дерева.
-    """
+    """Выводит граф в виде ASCII-дерева."""
     if visited is None:
         visited = set()
 
@@ -185,119 +203,143 @@ def print_ascii_tree(graph, root, indent=0, visited=None):
 
     if root in visited:
         return
+
     visited.add(root)
 
     if root in graph:
         for dep in graph[root]:
-            print_ascii_tree(graph, dep, indent + 1, visited)
+            print_ascii_tree(
+                graph,
+                dep,
+                indent + 1,
+                visited
+            )
 
 
 def find_reverse_dependencies(graph, target_package):
-    """
-    Ищет пакеты, которые зависят от target_package.
-    """
+    """Ищет пакеты, которые зависят от указанного пакета."""
     reverse_deps = set()
-    for pkg, deps in graph.items():
-        if target_package in deps:
-            reverse_deps.add(pkg)
+
+    for package, dependencies in graph.items():
+        if target_package in dependencies:
+            reverse_deps.add(package)
+
     return list(reverse_deps)
 
 
 def print_reverse_dependencies(graph, target_package):
-    """
-    Выводит обратные зависимости на экран.
-    """
-    print(f"\n=== Обратные зависимости для '{target_package}' ===")
-    rev_deps = find_reverse_dependencies(graph, target_package)
-    if rev_deps:
-        for pkg in rev_deps:
-            print(f"- {pkg}")
+    """Выводит обратные зависимости на экран."""
+    print(
+        f"\n=== Обратные зависимости для "
+        f"'{target_package}' ==="
+    )
+    reverse_deps = find_reverse_dependencies(
+        graph,
+        target_package
+    )
+
+    if reverse_deps:
+        for package in reverse_deps:
+            print(f"- {package}")
     else:
         print("Обратные зависимости не найдены.")
 
 
-def save_plantuml(graph, filename):
-    """
-    Сохраняет граф в формате PlantUML и открывает картинку в браузере.
-    """
-    lines = ["@startuml"]
-    for pkg, deps in graph.items():
-        if not deps:
-            lines.append(f"[{pkg}]")
-        for dep in deps:
-            lines.append(f"[{pkg}] --> [{dep}]")
-    lines.append("@enduml")
+def _encode_plantuml(puml_text):
+    """Сжимает текст PlantUML и кодирует его для URL."""
+    compressed = zlib.compress(
+        puml_text.encode("utf-8"),
+        PLANTUML_COMPRESSION_LEVEL
+    )[2:-4]
 
-    puml_text = "\n".join(lines)
+    encoded_parts = []
 
-    # Сохраняем текстовый файл
+    for index in range(
+        0,
+        len(compressed),
+        PLANTUML_CHUNK_SIZE
+    ):
+        chunk = compressed[
+            index:index + PLANTUML_CHUNK_SIZE
+        ].ljust(PLANTUML_CHUNK_SIZE, b"\x00")
+
+        byte1, byte2, byte3 = chunk
+
+        code1 = byte1 >> 2
+        code2 = ((byte1 & 0x03) << 4) | (byte2 >> 4)
+        code3 = ((byte2 & 0x0F) << 2) | (byte3 >> 6)
+        code4 = byte3 & 0x3F
+
+        encoded_parts.append(
+            PLANTUML_ALPHABET[code1]
+            + PLANTUML_ALPHABET[code2]
+            + PLANTUML_ALPHABET[code3]
+            + PLANTUML_ALPHABET[code4]
+        )
+
+    return "".join(encoded_parts)
+
+
+def _write_plantuml_file(puml_text, filename):
+    """Сохраняет текст PlantUML в файл."""
     try:
-        with open(filename, "w", encoding="utf-8") as f:
-            f.write(puml_text)
+        with open(filename, "w", encoding="utf-8") as file:
+            file.write(puml_text)
+
         print(f"Граф сохранен в файл: {filename}")
+        return True
     except Exception as exc:
         print(f"Ошибка сохранения файла: {exc}")
-        return
+        return False
 
-    # --- ПРАВИЛЬНОЕ КОДИРОВАНИЕ ДЛЯ PLANTUML ---
-    import zlib
-    import string
 
-    # 1. Сжимаем текст через Deflate
-    compressed = zlib.compress(puml_text.encode("utf-8"), 9)[2:-4]
-
-    # 2. Кодируем в специальный алфавит PlantUML
-    alphabet = string.digits + string.ascii_uppercase + string.ascii_lowercase + "-_"
-    encoded = ""
-    for i in range(0, len(compressed), 3):
-        chunk = compressed[i:i+3]
-        b1 = chunk[0]
-        b2 = chunk[1] if len(chunk) > 1 else 0
-        b3 = chunk[2] if len(chunk) > 2 else 0
-
-        c1 = b1 >> 2
-        c2 = ((b1 & 0x3) << 4) | (b2 >> 4)
-        c3 = ((b2 & 0xF) << 2) | (b3 >> 6)
-        c4 = b3 & 0x3F
-
-        encoded += alphabet[c1] + alphabet[c2] + alphabet[c3] + alphabet[c4]
-
-    # 3. Формируем ссылку
+def _open_plantuml_in_browser(puml_text):
+    """Открывает визуализацию графа в браузере."""
+    encoded = _encode_plantuml(puml_text)
     url = f"https://www.plantuml.com/plantuml/png/{encoded}"
 
-    print(f"Открываю граф в браузере...")
+    print("Открываю граф в браузере...")
     print(f"Ссылка: {url}")
-
-    # Открываем браузер (если Safari не откроется, ссылка будет в терминале)
-    import webbrowser
     webbrowser.open(url)
 
 
-def download_plantuml_image(puml_text, filename):
-    """
-    Отправляет код PlantUML на сервер и скачивает готовую PNG картинку.
-    """
-    import urllib.parse
+def save_plantuml(graph, filename):
+    """Сохраняет граф в формате PlantUML и открывает его в браузере."""
+    lines = ["@startuml"]
 
-    # Кодируем текст для URL
-    encoded = urllib.parse.quote(puml_text)
+    for package, dependencies in graph.items():
+        if not dependencies:
+            lines.append(f"[{package}]")
+
+        for dependency in dependencies:
+            lines.append(f"[{package}] --> [{dependency}]")
+
+    lines.append("@enduml")
+    puml_text = "\n".join(lines)
+
+    if _write_plantuml_file(puml_text, filename):
+        _open_plantuml_in_browser(puml_text)
+
+
+def download_plantuml_image(puml_text, filename):
+    """Скачивает изображение графа PlantUML в формате PNG."""
+    encoded = _encode_plantuml(puml_text)
     url = f"https://www.plantuml.com/plantuml/png/{encoded}"
 
     try:
         with urllib.request.urlopen(url) as response:
-            img_data = response.read()
+            image_data = response.read()
 
-        with open(filename, "wb") as f:
-            f.write(img_data)
+        with open(filename, "wb") as file:
+            file.write(image_data)
+
         print(f"Изображение графа сохранено в файл: {filename}")
     except Exception as exc:
         print(f"Ошибка при скачивании картинки: {exc}")
 
 
 def main():
-    """
-    Точка входа в программу.
-    """
+    """Точка входа в программу."""
     args = parse_args()
     print_config(args)
 
@@ -305,17 +347,21 @@ def main():
         print("Ошибка: не указан пакет (--package).")
         return
 
-    root_pkg = "A" if args.repo else args.package
+    root_package = "A" if args.repo else args.package
 
     print("\n=== Построение графа ===")
-    graph = build_graph(root_pkg, args.version, args.repo)
+    graph = build_graph(
+        root_package,
+        args.version,
+        args.repo
+    )
 
     if args.reverse:
         print_reverse_dependencies(graph, args.package)
 
     if args.ascii:
         print("\n=== Граф зависимостей (ASCII) ===")
-        print_ascii_tree(graph, root_pkg)
+        print_ascii_tree(graph, root_package)
 
     if args.output:
         save_plantuml(graph, args.output)
